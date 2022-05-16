@@ -3,7 +3,7 @@ Code for the paper "Towards Explaining Graph Neural Networks via Preserving Pred
 
 ## Overview
 The project contains the following folders and files.
-- datasets:  the datasets used in the paper.
+- datasets:  the datasets for the node classification is contained in this fold. For Graph-SST5 and Graph-Twitter used in the paper, they can be download from the Baidu Cloud. Link: https://pan.baidu.com/s/1KCa7VcuBE5A8oyzX34ohug Password: 4c2e.
 - checkpoint: trained GNN models to be explained.
 - codes
 	- load_dataset.py: contains functions for loading datasets.
@@ -21,14 +21,8 @@ python   3.7
 torch >= 1.6.0
 
 ## To run
-Simply run train_gnns.py to train the GNN model. Change parameter **dataset** per demand.
+Run train_gnns.py to train the GNN model. Change parameter **dataset** per demand.
 
-train_gnns.py --dataset BA_shapes
+Run main_NCExplain.py to train and test the explainer in the node classification task. Change **dataset** per demand.
 
-Simply run main_NCExplain.py to train and test the explainer in the node classification task. Change **dataset** per demand.
-
-main_NCExplain.py --dataset BA_shapes
-
-Simply run main_GCExplain.py to train and test the explainer in the graph classification. task Change **dataset** per demand.
-
-main_GCExplain.py --dataset BA_shapes
+Run main_GCExplain.py to train and test the explainer in the graph classification. task Change **dataset** per demand.
