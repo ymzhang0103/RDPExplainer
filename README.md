@@ -2,33 +2,33 @@
 Code for the paper "Towards Explaining Graph Neural Networks via Preserving Prediction Ranking and Structural Dependency"
 
 ## Overview
-The package contains the following folders and files:
-- datasets: including the datasets used in the paper.
-- checkpoint: trained GNN models used in the paper.
+The project contains the following folders and files.
+- datasets:  the datasets used in the paper.
+- checkpoint: trained GNN models to be explained.
 - codes
-	- load_dataset.py: contains function needed to read datasets.
-	- ExplainerNC.py: the explainer of node classification.
-	- ExplainerGC.py: the explainer of graph classification.
-	- GNNConfig.py: configure parameter of GNN model.
-	- ExplainConfig.py: configure parameter of GNN model.
-	- metrics.py: contains functions related to evaluation.
-- train_gnns.py: main code to train  and test GNN model.
-- main_NCExplain.py: main code to train  and test explainer of node classification.
-- main_GCExplain.py: main code to train  and test explainer of graph classification.
+	- load_dataset.py: contains functions for loading datasets.
+	- ExplainerNC.py: the explainer for the node classification task.
+	- ExplainerGC.py: the explainer for the graph classification task.
+	- GNNConfig.py:  parameter configuration of the GNN model to be explained.
+	- ExplainConfig.py: parameter configuration of the GNN explainer.
+	- metrics.py:  metrics for the evaluation.
+- train_gnns.py: the code for the GNN model to be explained.
+- main_NCExplain.py: the code for the explainer in the node classification task.
+- main_GCExplain.py: the code for the explainer in the graph classification task.
 
 ## Prerequisites
 python   3.7
 torch >= 1.6.0
 
 ## To run
-Simply run the train_gnns.py to train GNN model . Change dataset per demand.
+Simply run train_gnns.py to train the GNN model. Change parameter **dataset** per demand.
 
 train_gnns.py --dataset BA_shapes
 
-Simply run the main_NCExplain.py to train and  test explainer of node classification. Change dataset per demand.
+Simply run main_NCExplain.py to train and test the explainer in the node classification task. Change **dataset** per demand.
 
 main_NCExplain.py --dataset BA_shapes
 
-Simply run the main_GCExplain.py to train and  test explainer of node classification. Change dataset per demand.
+Simply run main_GCExplain.py to train and test the explainer in the graph classification. task Change **dataset** per demand.
 
 main_GCExplain.py --dataset BA_shapes
