@@ -6,7 +6,7 @@ The package contains the following folders and files:
 - datasets: including the datasets used in the paper.
 - checkpoint: trained GNN models used in the paper.
 - codes
-  - load_dataset.py: contains function needed to read datasets.
+	- load_dataset.py: contains function needed to read datasets.
 	- ExplainerNC.py: the explainer of node classification.
 	- ExplainerGC.py: the explainer of graph classification.
 	- GNNConfig.py: configure parameter of GNN model.
