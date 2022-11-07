@@ -35,9 +35,11 @@ class ExplainerGC(nn.Module):
     def concrete_sample(self, log_alpha, beta=1.0, training=True):
         """Uniform random numbers for the concrete distribution"""
         if training:
-            debug_var = 0.0
-            bias = 0.0
-            random_noise = bias + torch.FloatTensor(log_alpha.shape).uniform_(debug_var, 1.0-debug_var)
+            #debug_var = 0.0
+            #bias = 0.0
+            #random_noise = bias + torch.FloatTensor(log_alpha.shape).uniform_(debug_var, 1.0-debug_var)
+            bias = self.args.sample_bias
+            random_noise = torch.FloatTensor(log_alpha.shape).uniform_(bias, 1.0-bias)
             random_noise = random_noise.to(self.device)
             gate_inputs = torch.log(random_noise) - torch.log(1.0 - random_noise)
             gate_inputs = (gate_inputs.clone() + log_alpha) / beta
@@ -163,7 +165,7 @@ class ExplainerGC(nn.Module):
         self.__clear_masks__()
         return res
 
-    def deterministic_NeuralSort(self, s, tau=0.1, hard=False):
+    def deterministic_NeuralSort(self, s, tau=0.00001, hard=False):
         """s: input elements to be sorted. 
         Shape: batch_size x n x 1
         tau: temperature for relaxation. Scalar."""
@@ -197,7 +199,7 @@ class ExplainerGC(nn.Module):
             ori_pred: prediction made by the original model.
         """
         #pl loss
-        P = self.deterministic_NeuralSort(pred.unsqueeze(0).unsqueeze(-1), 0.00001)
+        P = self.deterministic_NeuralSort(pred.unsqueeze(0).unsqueeze(-1), 0.00001) 
         pred_ranked = torch.matmul(P, ori_pred.unsqueeze(0).t())[0].t()[0]
         pl_loss = 0
         for i in range(len(pred_ranked)):
@@ -207,7 +209,7 @@ class ExplainerGC(nn.Module):
         #value loss
         pre_rp, r = torch.sort(ori_pred, descending=True)
         pred_ranked = pred[r]
-        value_loss = sum((pred_ranked - pre_rp)**2)
+        value_loss = sum(torch.abs(pred_ranked - pre_rp))
 
         # size
         mask = self.mask

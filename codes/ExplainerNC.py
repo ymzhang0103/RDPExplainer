@@ -10,7 +10,6 @@ from torch_geometric.nn.conv import GATConv
 import numpy as np
 from math import sqrt
 import scipy.sparse as sp
-import torch.nn.functional as F
 
 class ExplainerNC(nn.Module):
     def __init__(self, model, args, **kwargs):
@@ -36,12 +35,6 @@ class ExplainerNC(nn.Module):
         self.params = []
 
         self.softmax = nn.Softmax(dim=0)
-
-        self.coeffs = {
-            "size": args.coff_size,
-            "weight_decay": args.weight_decay,
-            "ent": args.coff_ent
-        }
 
         self.init_bias = 0.0
 
@@ -197,7 +190,7 @@ class ExplainerNC(nn.Module):
         self.__clear_masks__()
         return res
 
-    def deterministic_NeuralSort(self, s, tau=0.1, hard=False):
+    def deterministic_NeuralSort(self, s, tau=0.00001, hard=False):
         """s: input elements to be sorted. 
         Shape: batch_size x n x 1
         tau: temperature for relaxation. Scalar."""
@@ -230,7 +223,7 @@ class ExplainerNC(nn.Module):
            ori_pred: prediction made by the original model.
         """
         #pl loss
-        P = self.deterministic_NeuralSort(pred.unsqueeze(0).unsqueeze(-1), 0.00001)
+        P = self.deterministic_NeuralSort(pred.unsqueeze(0).unsqueeze(-1), 0.00001) 
         ori_pred_ranked = torch.matmul(P, ori_pred.unsqueeze(0).t())[0].t()[0]
         pl_loss = 0
         for i in range(len(ori_pred_ranked)):
@@ -240,14 +233,14 @@ class ExplainerNC(nn.Module):
         # value loss
         pre_rp, r = torch.sort(ori_pred, descending=True)
         pred_ranked = pred[r]
-        value_loss = sum((pred_ranked - pre_rp)**2)
+        value_loss = self.args.coff_diff* sum(torch.abs(pred_ranked - pre_rp))
 
         # size
         if self.args.budget<=0:
-            size_loss = self.coeffs["size"] * torch.sum(self.mask)
+            size_loss = self.args.coff_size * torch.sum(self.mask)#len(self.mask[self.mask > 0]) 
         else:
             relu = nn.ReLU()
-            size_loss = self.coeffs["size"] * relu(torch.sum(self.mask)-self.args.budget)
+            size_loss = self.args.coff_size * relu(torch.sum(self.mask)-self.args.budget) #torch.sum(self.mask)
 
         if  loss_flag == "plandvalue":
             loss = pl_loss + value_loss +size_loss
