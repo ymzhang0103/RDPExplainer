@@ -92,7 +92,7 @@ class ExplainerGC(nn.Module):
         self.edge_mask = None
 
 
-    def convert_new_directed_edge_index(self, edge_index):
+    def convert_new_directed_edge_index_bak(self, edge_index):
         edge_num = len(edge_index[0])
         for i in range(edge_num):
             raw_idx = torch.where(edge_index[1] == edge_index[0][i])[0] #head
@@ -105,7 +105,46 @@ class ExplainerGC(nn.Module):
                 new_edge_index = torch.cat((new_edge_index, temp_edge), dim=1)
         return new_edge_index
         
+    def convert_new_directed_edge_index(self, edge_index):
+        edge_num = len(edge_index[0])
+        edge_hash = dict()
+        for i in range(edge_num):
+            start_node = edge_index[0][i].item()
+            end_node = edge_index[1][i].item()
+            if start_node in edge_hash.keys():
+                start_edgeset, end_edgeset = edge_hash[start_node]
+                start_edgeset.add(i)
+                edge_hash[start_node] = (start_edgeset, end_edgeset)
+            else:
+                start_edgeset=set()
+                start_edgeset.add(i)
+                edge_hash[start_node] = (start_edgeset, set())
+            if end_node in edge_hash.keys():
+                start_edgeset, end_edgeset = edge_hash[end_node]
+                end_edgeset.add(i)
+                edge_hash[end_node] = (start_edgeset, end_edgeset)
+            else:
+                end_edgeset=set()
+                end_edgeset.add(i)
+                edge_hash[end_node] = (set(), end_edgeset)
+        
+        for i in range(edge_num):
+            start_node = edge_index[0][i].item()
+            end_node = edge_index[1][i].item()
+            _, end_edgeset = edge_hash[start_node]
+            start_edgeset, _ = edge_hash[end_node]
+            #temp_edge_head = torch.cat((torch.tensor(list(start_edgeset)).unsqueeze(0),torch.tensor([i] * len(start_edgeset)).unsqueeze(0)))
+            #temp_edge_tail = torch.cat((torch.tensor([i] * len(end_edgeset)).unsqueeze(0), torch.tensor(list(end_edgeset)).unsqueeze(0)))
+            #temp_edge = torch.cat((temp_edge_head, temp_edge_tail), dim=1)
+            con_idx = torch.cat((torch.tensor(list(start_edgeset)), torch.tensor(list(end_edgeset)))).unique()
+            temp_edge = torch.cat((torch.tensor([i] * len(con_idx)).unsqueeze(0), con_idx.unsqueeze(0)))
+            if i==0:
+                new_edge_index = temp_edge
+            else:
+                new_edge_index = torch.cat((new_edge_index, temp_edge), dim=1)
+        return new_edge_index.to(self.device)
 
+    '''
     def forward(self, inputs, training=False):
         x, embed, adj, label, tmp = inputs
         if not isinstance(x, torch.Tensor):
@@ -156,6 +195,62 @@ class ExplainerGC(nn.Module):
         masked_adj = torch.mul(adj, sym_mask)
         self.masked_adj = masked_adj
         edge_index = dense_to_sparse(masked_adj)[0]
+        edge_mask = masked_adj[edge_index[0], edge_index[1]]
+        self.__clear_masks__()
+        self.__set_masks__(x, edge_index, edge_mask)
+        data = Data(x=x, edge_index=edge_index, batch = torch.zeros(x.shape[0], dtype=torch.int64, device=x.device))
+        output, _, _ = self.model(data)
+        res = self.softmax(output.squeeze())
+        self.__clear_masks__()
+        return res
+    '''
+
+    def forward(self, inputs, training=False):
+        x, embed, edge_index, new_edge_index, label, tmp = inputs
+        adj = torch.sparse_coo_tensor(indices=edge_index, values=torch.ones(edge_index.shape[1]).to(self.device), size=(x.shape[0], x.shape[0])).to_dense()
+        
+        if not isinstance(x, torch.Tensor):
+            x = torch.tensor(x)
+        x = x.to(self.device)
+        if not isinstance(label, torch.Tensor):
+            label = torch.tensor(label)
+        self.label = label.to(self.device)
+        row = edge_index[0]
+        col = edge_index[1]
+        if not isinstance(embed[row], torch.Tensor):
+            f1 = torch.Tensor(embed[row]).to(self.device) 
+            f2 = torch.Tensor(embed[col]).to(self.device)
+        else:
+            f1 = embed[row] 
+            f2 = embed[col]
+        h = torch.cat([f1, f2], dim=-1)
+        h = h.to(self.device)
+
+        # GNN
+        temp_l = 0
+        l = len(self.elayers)
+        
+        for elayer in self.elayers:
+            if temp_l < l - 1:
+                h = elayer(h, new_edge_index) 
+            else:
+                h = elayer(h)
+            temp_l = temp_l + 1
+        self.values = torch.reshape(h, [-1])
+        values = self.concrete_sample(self.values, beta=tmp, training=training)
+
+        nodesize = x.shape[0]
+        sparsemask = torch.sparse.FloatTensor(
+            indices=edge_index,
+            values=values,
+            size=[nodesize, nodesize]
+        ).to(self.device)
+        sym_mask = sparsemask.coalesce().to_dense().to(torch.float32) 
+        self.mask = sym_mask
+
+        sym_mask = (sym_mask + sym_mask.T) / 2
+        masked_adj = torch.mul(adj, sym_mask)
+        self.masked_adj = masked_adj
         edge_mask = masked_adj[edge_index[0], edge_index[1]]
         self.__clear_masks__()
         self.__set_masks__(x, edge_index, edge_mask)
