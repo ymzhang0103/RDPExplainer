@@ -23,6 +23,45 @@ from torch_geometric.data import Data
 from torch_geometric.utils import to_networkx
 
 
+def convert_new_directed_edge_index(edge_index):
+    edge_num = len(edge_index[0])
+    edge_hash = dict()
+    for i in range(edge_num):
+        start_node = edge_index[0][i].item()
+        end_node = edge_index[1][i].item()
+        if start_node in edge_hash.keys():
+            start_edgeset, end_edgeset = edge_hash[start_node]
+            start_edgeset.add(i)
+            edge_hash[start_node] = (start_edgeset, end_edgeset)
+        else:
+            start_edgeset=set()
+            start_edgeset.add(i)
+            edge_hash[start_node] = (start_edgeset, set())
+        if end_node in edge_hash.keys():
+            start_edgeset, end_edgeset = edge_hash[end_node]
+            end_edgeset.add(i)
+            edge_hash[end_node] = (start_edgeset, end_edgeset)
+        else:
+            end_edgeset=set()
+            end_edgeset.add(i)
+            edge_hash[end_node] = (set(), end_edgeset)
+    
+    for i in range(edge_num):
+        start_node = edge_index[0][i].item()
+        end_node = edge_index[1][i].item()
+        _, end_edgeset = edge_hash[start_node]
+        start_edgeset, _ = edge_hash[end_node]
+        #temp_edge_head = torch.cat((torch.tensor(list(start_edgeset)).unsqueeze(0),torch.tensor([i] * len(start_edgeset)).unsqueeze(0)))
+        #temp_edge_tail = torch.cat((torch.tensor([i] * len(end_edgeset)).unsqueeze(0), torch.tensor(list(end_edgeset)).unsqueeze(0)))
+        #temp_edge = torch.cat((temp_edge_head, temp_edge_tail), dim=1)
+        con_idx = torch.cat((torch.tensor(list(start_edgeset)), torch.tensor(list(end_edgeset)))).unique()
+        temp_edge = torch.cat((torch.tensor([i] * len(con_idx)).unsqueeze(0), con_idx.unsqueeze(0)))
+        if i==0:
+            new_edge_index = temp_edge
+        else:
+            new_edge_index = torch.cat((new_edge_index, temp_edge), dim=1)
+    return new_edge_index.to(args.device)
+
 
 def main(iteration_num=10):
     def test(iteration, indices, model, explainer, topk_arr, plot_flag=False):
@@ -477,7 +516,7 @@ def main(iteration_num=10):
 
 
 
-def test_onegraph(explain_graph_arr, explainModel_ckpt_path):
+def test_graphs(explain_graph_arr, explainModel_ckpt_path):
     starttime = time.time()
     top_k=15
     GNNmodel_ckpt_path = osp.join('checkpoint', args.dataset, 'gcn_best.pth') 
@@ -490,7 +529,7 @@ def test_onegraph(explain_graph_arr, explainModel_ckpt_path):
     model.eval()
     model.to(args.device)
 
-    explainer = ExplainerGCValueL1Norm(model=model, args=args)
+    explainer = ExplainerGC(model=model, args=args)
     explainer.to(args.device)
     explainer.load_state_dict(torch.load(explainModel_ckpt_path) )
     explainer.eval()
@@ -522,13 +561,60 @@ def test_onegraph(explain_graph_arr, explainModel_ckpt_path):
     print("test time: ", time.time()-starttime)'''
 
 
+def sta_graph_info(explain_graph_arr, explainModel_ckpt_path):
+    starttime = time.time()
+    top_k=15
+    GNNmodel_ckpt_path = osp.join('checkpoint', args.dataset, 'gcn_best.pth') 
+    #load data
+    dataset = get_dataset(args.dataset_root, args.dataset)
+    #load model
+    model = GnnNets(input_dim=dataset.num_node_features,  output_dim=dataset.num_classes, model_args=model_args)
+    ckpt = torch.load(GNNmodel_ckpt_path)
+    model.load_state_dict(ckpt['net'])
+    model.eval()
+    model.to(args.device)
+
+    explainer = ExplainerGC(model=model, args=args)
+    explainer.to(args.device)
+    explainer.load_state_dict(torch.load(explainModel_ckpt_path) )
+    explainer.eval()
+
+    nodecount_average = 0
+    new_nodecount_average = 0
+    edgecount_average = 0
+    new_edgecount_average = 0
+    for explain_graph in explain_graph_arr:
+        sub_features = dataset.data.x[dataset.slices['x'][explain_graph].item():dataset.slices['x'][explain_graph+1].item(), :]
+        sub_edge_index = dataset.data.edge_index[:, dataset.slices['edge_index'][explain_graph].item():dataset.slices['edge_index'][explain_graph+1].item()].to(args.device)
+        sub_data = Data(x=sub_features, edge_index=sub_edge_index, batch = torch.zeros(sub_features.shape[0], dtype=torch.int64, device=sub_features.device))
+        logits, prob, sub_embs = model(sub_data)
+        label = dataset.data.y[explain_graph]
+        
+        new_sub_edge_index = convert_new_directed_edge_index(sub_edge_index)
+        nodecount_average +=  sub_features.shape[0]
+        new_nodecount_average += new_sub_edge_index.max().item()+1
+        edgecount_average += len(sub_edge_index[0])
+        new_edgecount_average += len(new_sub_edge_index[0])
+
+        explainer.eval()
+        masked_pred  = explainer((sub_features, sub_embs, sub_edge_index, new_sub_edge_index, label, 1.0))
+        mask = explainer.masked_adj
+
+    print("get mask time: ",time.time()-starttime)
+    print("nodecount_average=", nodecount_average/100)
+    print("new_nodecount_average=", new_nodecount_average/100)
+    print("edgecount_average=", edgecount_average/100)
+    print("new_edgecount_average=", new_edgecount_average/100)
+
+
 
 
 if __name__ == '__main__':
-    #main()
-    #args.dataset="Graph-Twitter"
+    main()
+    #args.dataset="Graph_Twitter"
     #explainModel_ckpt_path ="LISA_TEST_LOGS/GRAPH_TWITTER_OUR_001sizeloss_10diffloss_001elr_epoch100_neuralsortandvalue_concrete_valueL1Norm/0/Graph-Twitter_BEST.pt"
-    explain_graph_arr = [random.randint(301, 600) for p in range(0, 100)]
-    args.dataset="Graph-SST5"
-    explainModel_ckpt_path ="LISA_TEST_LOGS/GRAPH_SST5_OUR_001sizeloss_10diffloss_001elr_epoch100_neuralsortandvalue_concrete_valueL1Norm/0/Graph-SST5_BEST.pt"
-    test_onegraph(explain_graph_arr, explainModel_ckpt_path)
+    #explain_graph_arr = [random.randint(301, 600) for p in range(0, 100)]
+    #args.dataset="Graph_SST5"
+    #explainModel_ckpt_path ="LISA_TEST_LOGS/GRAPH_SST5_OUR_001sizeloss_10diffloss_001elr_epoch100_neuralsortandvalue_concrete_valueL1Norm/0/Graph_SST5_BEST.pt"
+    #test_graphs(explain_graph_arr, explainModel_ckpt_path)
+    #sta_graph_info(explain_graph_arr, explainModel_ckpt_path)

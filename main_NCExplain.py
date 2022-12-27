@@ -25,7 +25,7 @@ from torch_geometric.data import Data
 from torch_geometric.utils import to_networkx
 
 
-def convert_new_directed_edge_index(edge_index):
+def convert_new_directed_edge_index_bak(edge_index):
     edge_num = len(edge_index[0])
     for i in range(edge_num):
         raw_idx = torch.where(edge_index[1] == edge_index[0][i])[0] #head
@@ -39,6 +39,45 @@ def convert_new_directed_edge_index(edge_index):
         else:
             new_edge_index = torch.cat((new_edge_index, temp_edge), dim=1)
     return new_edge_index
+
+def convert_new_directed_edge_index(edge_index):
+    edge_num = len(edge_index[0])
+    edge_hash = dict()
+    for i in range(edge_num):
+        start_node = edge_index[0][i].item()
+        end_node = edge_index[1][i].item()
+        if start_node in edge_hash.keys():
+            start_edgeset, end_edgeset = edge_hash[start_node]
+            start_edgeset.add(i)
+            edge_hash[start_node] = (start_edgeset, end_edgeset)
+        else:
+            start_edgeset=set()
+            start_edgeset.add(i)
+            edge_hash[start_node] = (start_edgeset, set())
+        if end_node in edge_hash.keys():
+            start_edgeset, end_edgeset = edge_hash[end_node]
+            end_edgeset.add(i)
+            edge_hash[end_node] = (start_edgeset, end_edgeset)
+        else:
+            end_edgeset=set()
+            end_edgeset.add(i)
+            edge_hash[end_node] = (set(), end_edgeset)
+    
+    for i in range(edge_num):
+        start_node = edge_index[0][i].item()
+        end_node = edge_index[1][i].item()
+        _, end_edgeset = edge_hash[start_node]
+        start_edgeset, _ = edge_hash[end_node]
+        #temp_edge_head = torch.cat((torch.tensor(list(start_edgeset)).unsqueeze(0),torch.tensor([i] * len(start_edgeset)).unsqueeze(0)))
+        #temp_edge_tail = torch.cat((torch.tensor([i] * len(end_edgeset)).unsqueeze(0), torch.tensor(list(end_edgeset)).unsqueeze(0)))
+        #temp_edge = torch.cat((temp_edge_head, temp_edge_tail), dim=1)
+        con_idx = torch.cat((torch.tensor(list(start_edgeset)), torch.tensor(list(end_edgeset)))).unique()
+        temp_edge = torch.cat((torch.tensor([i] * len(con_idx)).unsqueeze(0), con_idx.unsqueeze(0)))
+        if i==0:
+            new_edge_index = temp_edge
+        else:
+            new_edge_index = torch.cat((new_edge_index, temp_edge), dim=1)
+    return new_edge_index.to(args.device)
 
 
 def acc(sub_adj, sub_edge_label, mask):
@@ -595,9 +634,9 @@ def main(iteration_num=10):
 
 
 
-def test_onenode(explain_node_arr, explainModel_ckpt_path):
+def test_nodes(explain_node_arr, explainModel_ckpt_path):
     starttime = time.time()
-    filename = 'datasets/'+args.dataset+'/raw/' + args.dataset + '.pkl'
+    filename = '/home/liuli/zhangym/torch_projects/datasets/'+args.dataset+'/raw/' + args.dataset + '.pkl'
     GNNmodel_ckpt_path = osp.join('checkpoint', args.dataset, 'gcn_best.pth')
     
     #load data
@@ -613,7 +652,7 @@ def test_onenode(explain_node_arr, explainModel_ckpt_path):
     model.eval()
     #print("loading model time: ",time.time()-starttime)
 
-    explainer = ExplainerNCValueL1Norm(model=model, args=args)
+    explainer = ExplainerNC(model=model, args=args)
     explainer.to(args.device)
     explainer.load_state_dict(torch.load(explainModel_ckpt_path) )
     #print("loading explainer time: ",time.time()-starttime)
@@ -633,18 +672,18 @@ def test_onenode(explain_node_arr, explainModel_ckpt_path):
     for explain_node in explain_node_arr:
         sub_adj, sub_feature, sub_embed, sub_label, sub_edge_label, sub_node, sub_edge_idx  = extractor.subgraph(explain_node)
         sub_edge_index = torch.LongTensor([sub_adj.row, sub_adj.col]).to(args.device)
-        print("extract subgraph time: ",time.time()-starttime)
+        #print("extract subgraph time: ",time.time()-starttime)
 
         #convert edge to node and convert node to edge
         sub_new_edge_index = convert_new_directed_edge_index(sub_edge_index)
-        print("convert subgraph time: ",time.time()-starttime)
+        #print("convert subgraph time: ",time.time()-starttime)
 
         sub_explain_node = 0
         sub_feature_tensor = torch.Tensor(sub_feature).type(torch.float32).to(args.device)
         explainer.eval()
         masked_pred = explainer((sub_feature_tensor, sub_adj, sub_explain_node, sub_embed,  sub_new_edge_index, 1.0))
         mask = explainer.masked_adj
-        print("get mask time: ",time.time()-starttime)
+        #print("get mask time: ",time.time()-starttime)
     print("get mask time: ",time.time()-starttime)
 
 
@@ -672,11 +711,81 @@ def test_onenode(explain_node_arr, explainModel_ckpt_path):
     '''
 
 
+def sta_graph_info(explain_node_arr, explainModel_ckpt_path):
+    starttime = time.time()
+    filename = 'D:/Python_Projects/datasets/'+args.dataset+'/raw/' + args.dataset + '.pkl'
+    GNNmodel_ckpt_path = osp.join('checkpoint', args.dataset, 'gcn_best.pth')
+    
+    #load data
+    with open(filename, 'rb') as fin:
+        adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, edge_label_matrix = pkl.load(fin)
+    #print("loading data time: ",time.time()-starttime)
+
+    #load model
+    model = GnnNets_NC(input_dim=features.shape[1], output_dim=y_train.shape[1], model_args=model_args)
+    model.to_device()
+    ckpt = torch.load(GNNmodel_ckpt_path)
+    model.load_state_dict(ckpt['net'])
+    model.eval()
+    #print("loading model time: ",time.time()-starttime)
+
+    explainer = ExplainerNC(model=model, args=args)
+    explainer.to(args.device)
+    explainer.load_state_dict(torch.load(explainModel_ckpt_path) )
+    #print("loading explainer time: ",time.time()-starttime)
+
+    adj = csr_matrix(adj)
+    support = preprocess_adj(adj)
+    features_tensor = torch.tensor(features).type(torch.float32).to(args.device)
+    edge_index = torch.LongTensor([*support[0]]).t().to(args.device)
+    all_label = train_mask.reshape(-1, 1) * y_train + val_mask.reshape(-1, 1) * y_val + test_mask.reshape(-1, 1) * y_test
+    label = np.where(all_label)[1]
+    y = torch.from_numpy(label).to(args.device)
+    data = Data(x=features_tensor, y=y, edge_index=edge_index)
+    logits, outputs, embeds = model(data)
+    embeds = embeds.detach()
+    hops = len(args.latent_dim)
+    extractor = Extractor(adj, edge_index, features, edge_label_matrix, embeds, all_label, hops)
+    
+    nodecount_average = 0
+    new_nodecount_average = 0
+    edgecount_average = 0
+    new_edgecount_average = 0
+    for explain_node in explain_node_arr:
+        sub_adj, sub_feature, sub_embed, sub_label, sub_edge_label, sub_node, sub_edge_idx  = extractor.subgraph(explain_node)
+        sub_edge_index = torch.LongTensor([sub_adj.row, sub_adj.col]).to(args.device)
+        #print("extract subgraph time: ",time.time()-starttime)
+
+        #convert edge to node and convert node to edge
+        sub_new_edge_index = convert_new_directed_edge_index(sub_edge_index)
+        #print("convert subgraph time: ",time.time()-starttime)
+
+        nodecount_average +=  len(sub_node)
+        new_nodecount_average += sub_new_edge_index.max().item()+1
+        edgecount_average += len(sub_edge_index[0])
+        new_edgecount_average += len(sub_new_edge_index[0])
+
+        sub_explain_node = 0
+        sub_feature_tensor = torch.Tensor(sub_feature).type(torch.float32).to(args.device)
+        explainer.eval()
+        masked_pred = explainer((sub_feature_tensor, sub_adj, sub_explain_node, sub_embed,  sub_new_edge_index, 1.0))
+        mask = explainer.masked_adj
+        #print("get mask time: ",time.time()-starttime)
+    print("get mask time: ",time.time()-starttime)
+    print("nodecount_average=", nodecount_average/100)
+    print("new_nodecount_average=", new_nodecount_average/100)
+    print("edgecount_average=", edgecount_average/100)
+    print("new_edgecount_average=", new_edgecount_average/100)
+
+
+
+
 if __name__ == '__main__':
-    #main()
+    main()
     #args.dataset="BA_shapes"
     #explainModel_ckpt_path ="LISA_TEST_LOGS/BA_SHAPES_OUR_001sizeloss_10diffloss_003elr_epoch100_bestgnn_neuralsortandvalue_concrete_ValueL1Norm/0/BA_shapes_BEST.pt"
-    explain_node_arr = [random.randint(301, 600) for p in range(0, 100)]
-    args.dataset="BA_community"
-    explainModel_ckpt_path ="LISA_TEST_LOGS/BA_COMMUNITY_OUR_001sizeloss_10diffloss_001elr_epoch100_bestgnn_neuralsortandvalue_concrete_ValueL1Norm/0/BA_community_BEST.pt"
-    test_onenode(explain_node_arr, explainModel_ckpt_path)
+    #explain_node_arr = [random.randint(301, 600) for p in range(0, 100)]
+    #args.dataset="BA_community"
+    #explainModel_ckpt_path ="LISA_TEST_LOGS/BA_COMMUNITY_OUR_001sizeloss_10diffloss_001elr_epoch100_bestgnn_neuralsortandvalue_concrete_ValueL1Norm/0/BA_community_BEST.pt"
+    #test_nodes(explain_node_arr, explainModel_ckpt_path)
+    #sta_graph_info(explain_node_arr, explainModel_ckpt_path)
